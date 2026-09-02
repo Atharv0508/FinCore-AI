@@ -9,18 +9,45 @@ router=APIRouter(tags=["reconciliation"])
 def owner(user_id,user):
     if user_id!=user["google_sub"]: raise HTTPException(403,"You may access only your own records.")
 
+@router.post("/demo-data/{user_id}")
+async def create_demo_data(user_id:str,request:Request,user:dict=Depends(get_current_user)):
+    """Create a small linked Razorpay-like dataset for local project demonstrations."""
+    owner(user_id,user); db=request.app.state.mongo.database; now=datetime.now(timezone.utc)
+    invoices=[
+        {"razorpay_invoice_id":"inv_demo_001","invoice_number":"INV-DEMO-001","customer_name":"Aarav Shah","customer_email":"aarav@example.com","amount":125000,"amount_paid":125000,"status":"paid","currency":"INR","issued_at":now-timedelta(hours=3)},
+        {"razorpay_invoice_id":"inv_demo_002","invoice_number":"INV-DEMO-002","customer_name":"Priya Mehta","customer_email":"priya@example.com","amount":75000,"amount_paid":0,"status":"issued","currency":"INR","issued_at":now-timedelta(days=2)},
+        {"razorpay_invoice_id":"inv_demo_003","invoice_number":"INV-DEMO-003","customer_name":"Neel Patel","customer_email":"neel@example.com","amount":50000,"amount_paid":0,"status":"issued","currency":"INR","issued_at":now-timedelta(days=1)},
+    ]
+    payments=[
+        {"razorpay_payment_id":"pay_demo_001","invoice_id":"inv_demo_001","settlement_id":"set_demo_001","email":"aarav@example.com","amount":125000,"status":"captured","currency":"INR","method":"card","captured_at":now-timedelta(hours=2)},
+        {"razorpay_payment_id":"pay_demo_002","invoice_id":"inv_demo_002","settlement_id":"set_demo_001","email":"priya@example.com","amount":35000,"status":"captured","currency":"INR","method":"upi","captured_at":now-timedelta(days=1)},
+    ]
+    settlements=[{"razorpay_settlement_id":"set_demo_001","amount":156950,"fees":3125,"tax":563,"status":"processed","currency":"INR","utr":"DEMO-UTR-001","settled_at":now-timedelta(hours=1)}]
+    for collection,key,records in [("invoices","razorpay_invoice_id",invoices),("payments","razorpay_payment_id",payments),("settlements","razorpay_settlement_id",settlements)]:
+        for record in records:
+            record.update({"user_id":user_id,"raw":dict(record),"synced_at":now,"created_at":now,"updated_at":now})
+            await getattr(db,collection).update_one({"user_id":user_id,key:record[key]},{"$set":record},upsert=True)
+    return {"message":"Demo data created. Run reconciliation next.","invoices":len(invoices),"payments":len(payments),"settlements":len(settlements)}
+
 @router.post("/reconcile/{user_id}")
 async def reconcile(user_id:str,request:Request,user:dict=Depends(get_current_user)):
     owner(user_id,user); db=request.app.state.mongo.database
     invoices=await db.invoices.find({"user_id":user_id}).to_list(None); payments=await db.payments.find({"user_id":user_id}).to_list(None); settlements=await db.settlements.find({"user_id":user_id}).to_list(None)
-    results=DeterministicMatcher().reconcile(invoices,payments,settlements); grok=GrokReasoningService(db,get_settings()); ai=0
+    results=DeterministicMatcher().reconcile(invoices,payments,settlements); grok=GrokReasoningService(db,get_settings()); ai=0; ai_errors=[]
     for r in results:
         await db.matches.update_one({"user_id":user_id,"invoice_id":r.invoice_id},{"$set":{**r.to_document(),"user_id":user_id}},upsert=True)
-        if r.match_tier==4 and get_settings().xai_api_key:
+        if r.match_tier==4 and get_settings().groq_api_key:
             invoice=next((x for x in invoices if x.get("razorpay_invoice_id")==r.invoice_id),{})
             candidates=[p for p in payments if p.get("razorpay_payment_id") not in r.payment_ids][:10]
-            await grok.explain_tier_four(user_id,r,invoice,candidates); ai+=1
-    return {"reconciled":len(results),"tier4_reasoned":ai,"results":[r.to_document() for r in results]}
+            try:
+                await grok.explain_tier_four(user_id,r,invoice,candidates); ai+=1
+            except RuntimeError as error:
+                ai_errors.append({"invoice_id":r.invoice_id,"error":str(error)})
+                await db.exceptions.update_one(
+                    {"user_id":user_id,"invoice_id":r.invoice_id,"status":"open"},
+                    {"$set":{"category":"unresolved_reconciliation","severity":"medium","details":{"deterministic_result":r.to_document(),"ai_error":str(error)},"updated_at":datetime.now(timezone.utc)},"$setOnInsert":{"created_at":datetime.now(timezone.utc),"status":"open"}},upsert=True,
+                )
+    return {"reconciled":len(results),"tier4_reasoned":ai,"ai_errors":ai_errors,"results":[r.to_document() for r in results]}
 
 @router.get("/stats/{user_id}")
 async def stats(user_id:str,request:Request,user:dict=Depends(get_current_user)):

@@ -13,7 +13,7 @@ from app.core.config import Settings
 from app.models.ai import AIExceptionReasoning
 from app.services.deterministic_matching import ReconciliationResult
 
-XAI_CHAT_URL = "https://api.x.ai/v1/chat/completions"
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 PROMPT_VERSION = "fincore-tier4-v1"
 
 RESPONSE_SCHEMA = {
@@ -58,16 +58,31 @@ class GrokReasoningService:
         self.settings = settings
 
     async def answer_exception_question(self, question: str, exceptions: list[dict[str, Any]]) -> dict[str, Any]:
-        if not self.settings.xai_api_key:
-            raise RuntimeError("XAI_API_KEY is not configured.")
+        if not self.settings.groq_api_key:
+            raise RuntimeError("GROQ_API_KEY is not configured.")
         schema={"name":"exception_answer","strict":True,"schema":{"type":"object","properties":{"answer":{"type":"string"},"cited_exception_ids":{"type":"array","items":{"type":"string"}}},"required":["answer","cited_exception_ids"],"additionalProperties":False}}
-        payload={"model":self.settings.grok_model,"temperature":0,"messages":[{"role":"system","content":"Answer only from supplied exception records. Return JSON only; say evidence is unavailable when needed."},{"role":"user","content":json.dumps({"question":question,"exceptions":exceptions},default=_json_default)}],"response_format":{"type":"json_schema","json_schema":schema}}
+        payload={"model":self.settings.groq_model,"temperature":0,"messages":[{"role":"system","content":"Answer only from supplied exception records. Return valid JSON only in exactly this shape: {\"answer\":\"short evidence-based answer\",\"cited_exception_ids\":[]}. Do not use Markdown."},{"role":"user","content":json.dumps({"question":question,"exceptions":exceptions},default=_json_default)}],"response_format":{"type":"json_object"}}
         try:
             async with httpx.AsyncClient(timeout=45) as client:
-                response=await client.post(XAI_CHAT_URL,headers={"Authorization":f"Bearer {self.settings.xai_api_key}"},json=payload); response.raise_for_status()
-            return json.loads(response.json()["choices"][0]["message"]["content"])
+                response=await client.post(GROQ_CHAT_URL,headers={"Authorization":f"Bearer {self.settings.groq_api_key}","Content-Type":"application/json"},json=payload)
+                if response.is_error:
+                    try: detail=response.json().get("error",{}).get("message",response.text)
+                    except ValueError: detail=response.text
+                    raise RuntimeError(f"Grok request failed ({response.status_code}): {detail}")
+            content=response.json()["choices"][0]["message"]["content"]
+            parsed=json.loads(content)
+            answer=parsed.get("answer") if isinstance(parsed,dict) else None
+            if not isinstance(answer,str) or not answer.strip():
+                # Some JSON-mode models use a differently named text field. Preserve a useful answer safely.
+                answer=next((value for value in parsed.values() if isinstance(value,str) and value.strip()),None) if isinstance(parsed,dict) else None
+            if not isinstance(answer,str) or not answer.strip():
+                raise ValueError("response did not contain an answer string")
+            citations=parsed.get("cited_exception_ids",[]) if isinstance(parsed,dict) else []
+            return {"answer":answer,"cited_exception_ids":citations if isinstance(citations,list) else []}
+        except RuntimeError:
+            raise
         except (httpx.HTTPError,KeyError,IndexError,TypeError,ValueError) as error:
-            raise RuntimeError("Unable to obtain a structured Grok exception answer.") from error
+            raise RuntimeError(f"Grok returned an invalid structured answer: {error}") from error
 
     async def explain_tier_four(
         self,
@@ -78,8 +93,8 @@ class GrokReasoningService:
     ) -> AIExceptionReasoning:
         if result.match_tier != 4:
             raise ValueError("Grok may only be called for unresolved Tier-4 reconciliation cases.")
-        if not self.settings.xai_api_key:
-            raise RuntimeError("XAI_API_KEY is not configured.")
+        if not self.settings.groq_api_key:
+            raise RuntimeError("GROQ_API_KEY is not configured.")
 
         evidence = {
             "invoice": invoice,
@@ -87,21 +102,21 @@ class GrokReasoningService:
             "candidate_payments": candidate_payments[:10],
         }
         payload = {
-            "model": self.settings.grok_model,
+            "model": self.settings.groq_model,
             "temperature": 0,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(evidence, default=_json_default, separators=(",", ":"))},
             ],
-            "response_format": {"type": "json_schema", "json_schema": RESPONSE_SCHEMA},
+            "response_format": {"type": "json_object"},
         }
-        headers = {"Authorization": f"Bearer {self.settings.xai_api_key}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {self.settings.groq_api_key}", "Content-Type": "application/json"}
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
-                response = await client.post(XAI_CHAT_URL, headers=headers, json=payload)
+                response = await client.post(GROQ_CHAT_URL, headers=headers, json=payload)
                 response.raise_for_status()
         except httpx.HTTPStatusError as error:
-            raise RuntimeError("Grok rejected the reasoning request. Check XAI_API_KEY and model access.") from error
+            raise RuntimeError("Groq rejected the reasoning request. Check GROQ_API_KEY and model access.") from error
         except httpx.HTTPError as error:
             raise RuntimeError("Unable to reach Grok. Check the network connection and retry.") from error
 

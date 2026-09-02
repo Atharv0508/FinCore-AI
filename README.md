@@ -29,4 +29,4 @@ Add a `FERNET_KEY` to the root `.env`; generate it with `python -c "from cryptog
 
 ## Grok reasoning (Phase 5)
 
-Set `XAI_API_KEY` in the root `.env` and optionally choose `GROK_MODEL` (default: `grok-4.6`). `GrokReasoningService` is deliberately callable only for Tier-4 results. It submits a strict JSON-schema response request, validates the returned JSON with Pydantic, and persists the structured reasoning in `exceptions`. No AI call occurs for Tier 1–3 matches.
+Set `GROQ_API_KEY` in the root `.env` and optionally choose `GROQ_MODEL` (default: `openai/gpt-oss-20b`). The AI service runs only for Tier-4 results, requests JSON mode from Groq, validates it with Pydantic, and persists the reasoning in `exceptions`.

@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:5173"
     cookie_secure: bool = False
     fernet_key: str
-    xai_api_key: str | None = None
-    grok_model: str = "grok-4.6"
+    groq_api_key: str | None = None
+    groq_model: str = "openai/gpt-oss-20b"
 
     model_config = SettingsConfigDict(
         env_file=".env",
