@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+input,button{border:1px solid #475569;border-radius:.4rem;padding:.6rem;background:#0f172a;color:inherit}button{cursor:pointer}

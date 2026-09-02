@@ -1,0 +1,2 @@
+"""FinCore AI backend package."""
+
