@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from app.core.config import get_settings
 from app.core.security import get_current_user
@@ -6,6 +7,20 @@ from app.services.deterministic_matching import DeterministicMatcher
 from app.services.grok_reasoning import GrokReasoningService
 
 router=APIRouter(tags=["reconciliation"])
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if type(value).__name__ == "ObjectId":
+        return str(value)
+    return value
+
+
 def owner(user_id,user):
     if user_id!=user["google_sub"]: raise HTTPException(403,"You may access only your own records.")
 
@@ -31,23 +46,27 @@ async def create_demo_data(user_id:str,request:Request,user:dict=Depends(get_cur
 
 @router.post("/reconcile/{user_id}")
 async def reconcile(user_id:str,request:Request,user:dict=Depends(get_current_user)):
-    owner(user_id,user); db=request.app.state.mongo.database
-    invoices=await db.invoices.find({"user_id":user_id}).to_list(None); payments=await db.payments.find({"user_id":user_id}).to_list(None); settlements=await db.settlements.find({"user_id":user_id}).to_list(None)
-    results=DeterministicMatcher().reconcile(invoices,payments,settlements); grok=GrokReasoningService(db,get_settings()); ai=0; ai_errors=[]
-    for r in results:
-        await db.matches.update_one({"user_id":user_id,"invoice_id":r.invoice_id},{"$set":{**r.to_document(),"user_id":user_id}},upsert=True)
-        if r.match_tier==4 and get_settings().groq_api_key:
-            invoice=next((x for x in invoices if x.get("razorpay_invoice_id")==r.invoice_id),{})
-            candidates=[p for p in payments if p.get("razorpay_payment_id") not in r.payment_ids][:10]
-            try:
-                await grok.explain_tier_four(user_id,r,invoice,candidates); ai+=1
-            except RuntimeError as error:
-                ai_errors.append({"invoice_id":r.invoice_id,"error":str(error)})
-                await db.exceptions.update_one(
-                    {"user_id":user_id,"invoice_id":r.invoice_id,"status":"open"},
-                    {"$set":{"category":"unresolved_reconciliation","severity":"medium","details":{"deterministic_result":r.to_document(),"ai_error":str(error)},"updated_at":datetime.now(timezone.utc)},"$setOnInsert":{"created_at":datetime.now(timezone.utc),"status":"open"}},upsert=True,
-                )
-    return {"reconciled":len(results),"tier4_reasoned":ai,"ai_errors":ai_errors,"results":[r.to_document() for r in results]}
+    owner(user_id,user)
+    db=request.app.state.mongo.database
+    try:
+        invoices=await db.invoices.find({"user_id":user_id}).to_list(None); payments=await db.payments.find({"user_id":user_id}).to_list(None); settlements=await db.settlements.find({"user_id":user_id}).to_list(None)
+        results=DeterministicMatcher().reconcile(invoices,payments,settlements); grok=GrokReasoningService(db,get_settings()); ai=0; ai_errors=[]
+        for r in results:
+            await db.matches.update_one({"user_id":user_id,"invoice_id":r.invoice_id},{"$set":{**r.to_document(),"user_id":user_id}},upsert=True)
+            if r.match_tier==4 and get_settings().groq_api_key:
+                invoice=next((x for x in invoices if x.get("razorpay_invoice_id")==r.invoice_id),{})
+                candidates=[p for p in payments if p.get("razorpay_payment_id") not in r.payment_ids][:10]
+                try:
+                    await grok.explain_tier_four(user_id,r,invoice,candidates); ai+=1
+                except RuntimeError as error:
+                    ai_errors.append({"invoice_id":r.invoice_id,"error":str(error)})
+                    await db.exceptions.update_one(
+                        {"user_id":user_id,"invoice_id":r.invoice_id,"status":"open"},
+                        {"$set":{"category":"unresolved_reconciliation","severity":"medium","details":{"deterministic_result":r.to_document(),"ai_error":str(error)},"updated_at":datetime.now(timezone.utc)},"$setOnInsert":{"created_at":datetime.now(timezone.utc),"status":"open"}},upsert=True,
+                    )
+        return _json_safe({"reconciled":len(results),"tier4_reasoned":ai,"ai_errors":ai_errors,"results":[r.to_document() for r in results]})
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Reconciliation failed: {type(error).__name__}: {error}") from error
 
 @router.get("/stats/{user_id}")
 async def stats(user_id:str,request:Request,user:dict=Depends(get_current_user)):
@@ -64,7 +83,7 @@ async def stats(user_id:str,request:Request,user:dict=Depends(get_current_user))
     ai_confidences=[item.get("ai_reasoning",{}).get("confidence") for item in open_exceptions if isinstance(item.get("ai_reasoning"),dict) and isinstance(item["ai_reasoning"].get("confidence"),(int,float))]
     last_reconciled=max((item.get("reconciled_at") for item in rows if isinstance(item.get("reconciled_at"),datetime)),default=None)
     today_start=now.replace(hour=0,minute=0,second=0,microsecond=0)
-    return {
+    return _json_safe({
         "total":total,"matched":tiers["1"]+tiers["2"]+tiers["3"],"match_rate":round((tiers["1"]+tiers["2"]+tiers["3"])/total*100,2) if total else 0,"by_tier":tiers,"classification":classes,
         "counts":{"total_invoices":len(invoices),"total_payments":len(payments),"total_settlements":len(settlements),"fully_paid":classes["Paid"],"partially_paid":classes["Partial"],"unpaid":classes["Unpaid"],"authorized":sum(item.get("status")=="authorized" for item in payments)},
         "amounts":{"total_outstanding":outstanding,"total_collected":collected,"total_settled":settled,"payment_settlement_difference":collected-settled},
@@ -74,7 +93,7 @@ async def stats(user_id:str,request:Request,user:dict=Depends(get_current_user))
         "activity":{"invoices":[period(invoices,"issued_at",1),period(invoices,"issued_at",7),period(invoices,"issued_at",30)],"payments":[period(payments,"captured_at",1),period(payments,"captured_at",7),period(payments,"captured_at",30)]},
         "today":{"invoices":[item for item in invoices if isinstance(item.get("issued_at"),datetime) and item["issued_at"]>=today_start],"payments":[item for item in payments if isinstance(item.get("captured_at"),datetime) and item["captured_at"]>=today_start]},
         "exceptions":open_exceptions,"recent":{"invoices":invoices[:8],"payments":payments[:8],"settlements":settlements[:8]},
-    }
+    })
 
 @router.get("/search/{user_id}")
 async def search(user_id:str,request:Request,q:str=Query(min_length=1),user:dict=Depends(get_current_user)):
@@ -82,14 +101,14 @@ async def search(user_id:str,request:Request,q:str=Query(min_length=1),user:dict
     for collection,fields in [("invoices",["razorpay_invoice_id","invoice_number","customer_name","customer_email"]),("payments",["razorpay_payment_id","email"]),("settlements",["razorpay_settlement_id","utr"])]:
         docs=await getattr(db,collection).find({"user_id":user_id,"$or":[{f:rx} for f in fields]}).sort("created_at",-1).limit(20).to_list(20)
         out += [{"type":collection[:-1],"record":x} for x in docs]
-    return {"items":out}
+    return _json_safe({"items":out})
 
 @router.get("/transactions/{user_id}")
 async def transactions(user_id:str,request:Request,classification:str|None=None,skip:int=0,limit:int=Query(50,le=100),user:dict=Depends(get_current_user)):
     owner(user_id,user); q={"user_id":user_id};
     if classification:q["classification"]=classification
     rows=await request.app.state.mongo.database.matches.find(q).skip(skip).limit(limit).to_list(limit)
-    return {"items":rows,"skip":skip,"limit":limit}
+    return _json_safe({"items":rows,"skip":skip,"limit":limit})
 
 @router.post("/chat/{user_id}")
 async def chat(user_id:str,body:dict,request:Request,user:dict=Depends(get_current_user)):

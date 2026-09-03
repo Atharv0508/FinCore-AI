@@ -37,10 +37,16 @@ class RazorpayService:
         if not user or not user.get("razorpay_credentials_encrypted"):
             raise LookupError("Connect Razorpay before starting a sync.")
 
-        credentials = json.loads(self.cipher.decrypt(user["razorpay_credentials_encrypted"]))
+        try:
+            credentials = json.loads(self.cipher.decrypt(user["razorpay_credentials_encrypted"]))
+            key_id, key_secret = credentials["key_id"], credentials["key_secret"]
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError("Stored Razorpay credentials are invalid. Reconnect with active test-mode keys.") from error
+        if not isinstance(key_id, str) or not key_id or not isinstance(key_secret, str) or not key_secret:
+            raise RuntimeError("Stored Razorpay credentials are invalid. Reconnect with active test-mode keys.")
         async with httpx.AsyncClient(
             base_url=RAZORPAY_API_BASE,
-            auth=(credentials["key_id"], credentials["key_secret"]),
+            auth=(key_id, key_secret),
             timeout=httpx.Timeout(30.0, connect=10.0),
         ) as client:
             invoices = await self._fetch_all(client, "/invoices")
@@ -65,7 +71,12 @@ class RazorpayService:
             except httpx.HTTPError as error:
                 raise RuntimeError("Unable to reach Razorpay. Check your internet connection and retry.") from error
 
-            payload = response.json()
+            try:
+                payload = response.json()
+            except ValueError as error:
+                raise RuntimeError("Razorpay returned an unexpected response format.") from error
+            if not isinstance(payload, dict):
+                raise RuntimeError("Razorpay returned an unexpected response format.")
             page = payload.get("items")
             if not isinstance(page, list):
                 raise RuntimeError("Razorpay returned an unexpected response format.")

@@ -1,7 +1,7 @@
 import { GoogleLogin } from '@react-oauth/google'
 import Logo from '../components/Logo'
 
-export default function LandingPage({ showLogin, setShowLogin, onGoogleLogin, notice }) {
+export default function LandingPage({ showLogin, setShowLogin, onGoogleLogin, onGoogleError, notice }) {
   return (
     <main className="min-h-screen bg-[#0a0a0f] text-slate-100 relative overflow-hidden">
       {/* Ambient gradient blob background */}
@@ -107,7 +107,7 @@ export default function LandingPage({ showLogin, setShowLogin, onGoogleLogin, no
             <h2 className="mt-6 text-xl font-bold text-white">Welcome to FinCore</h2>
             <p className="mt-1 text-sm text-slate-400">Sign in to create your workspace.</p>
             <div className="mt-6">
-              <GoogleLogin onSuccess={onGoogleLogin} />
+              <GoogleLogin onSuccess={onGoogleLogin} onError={onGoogleError} />
             </div>
             {notice && <p className="mt-4 text-sm text-indigo-300">{notice}</p>}
           </div>
