@@ -45,10 +45,29 @@ def _json_default(value: Any) -> str:
 
 
 def parse_reasoning(content: str) -> AIExceptionReasoning:
-    """Reject malformed or schema-invalid model content rather than storing it."""
+    """Normalize Groq JSON mode output into FinCore's persisted exception schema."""
     try:
-        return AIExceptionReasoning.model_validate_json(content)
-    except ValidationError as error:
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            raise ValueError("JSON response must be an object")
+        # JSON mode guarantees JSON, but not every model follows every field name perfectly.
+        normalized = {
+            "likely_cause": data.get("likely_cause") or data.get("cause") or data.get("answer") or "Unresolved reconciliation case.",
+            "recommended_action": data.get("recommended_action") or data.get("action") or "Review the source payment and invoice records.",
+            "confidence": data.get("confidence", 0.5),
+            "severity": data.get("severity", "medium"),
+            "requires_human_review": data.get("requires_human_review", True),
+            "evidence_refs": data.get("evidence_refs") or data.get("cited_exception_ids") or [],
+        }
+        if normalized["severity"] not in {"low", "medium", "high"}:
+            normalized["severity"] = "medium"
+        if not isinstance(normalized["confidence"], (int, float)):
+            normalized["confidence"] = 0.5
+        normalized["confidence"] = max(0, min(1, float(normalized["confidence"])))
+        if not isinstance(normalized["evidence_refs"], list):
+            normalized["evidence_refs"] = []
+        return AIExceptionReasoning.model_validate(normalized)
+    except (ValidationError, ValueError, TypeError, json.JSONDecodeError) as error:
         raise RuntimeError("Grok returned JSON that does not match FinCore's reasoning schema.") from error
 
 

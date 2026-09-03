@@ -56,7 +56,25 @@ async def stats(user_id:str,request:Request,user:dict=Depends(get_current_user))
     invoices,payments,settlements=await docs("invoices"),await docs("payments"),await docs("settlements")
     def period(items,field,days): return sum(1 for x in items if isinstance(x.get(field),datetime) and x[field]>=now-timedelta(days=days))
     classes={k:sum(r.get("classification")==k for r in rows) for k in ["Paid","Partial","Unpaid","Exception"]}
-    return {"total":total,"matched":tiers["1"]+tiers["2"]+tiers["3"],"match_rate":round((tiers["1"]+tiers["2"]+tiers["3"])/total*100,2) if total else 0,"by_tier":tiers,"classification":classes,"activity":{"invoices":[period(invoices,"issued_at",1),period(invoices,"issued_at",7),period(invoices,"issued_at",30)],"payments":[period(payments,"captured_at",1),period(payments,"captured_at",7),period(payments,"captured_at",30)]},"recent":{"invoices":invoices[:8],"payments":payments[:8],"settlements":settlements[:8]}}
+    matched_payment_ids={payment_id for row in rows for payment_id in row.get("payment_ids",[])}
+    open_exceptions=await db.exceptions.find({"user_id":user_id,"status":"open"}).sort("updated_at",-1).to_list(20)
+    collected=sum(item.get("amount",0) or 0 for item in payments if item.get("status") in {"captured","authorized"})
+    settled=sum(item.get("amount",0) or 0 for item in settlements)
+    outstanding=sum(max(0,(item.get("amount",0) or 0)-(item.get("amount_paid",0) or 0)) for item in invoices)
+    ai_confidences=[item.get("ai_reasoning",{}).get("confidence") for item in open_exceptions if isinstance(item.get("ai_reasoning"),dict) and isinstance(item["ai_reasoning"].get("confidence"),(int,float))]
+    last_reconciled=max((item.get("reconciled_at") for item in rows if isinstance(item.get("reconciled_at"),datetime)),default=None)
+    today_start=now.replace(hour=0,minute=0,second=0,microsecond=0)
+    return {
+        "total":total,"matched":tiers["1"]+tiers["2"]+tiers["3"],"match_rate":round((tiers["1"]+tiers["2"]+tiers["3"])/total*100,2) if total else 0,"by_tier":tiers,"classification":classes,
+        "counts":{"total_invoices":len(invoices),"total_payments":len(payments),"total_settlements":len(settlements),"fully_paid":classes["Paid"],"partially_paid":classes["Partial"],"unpaid":classes["Unpaid"],"authorized":sum(item.get("status")=="authorized" for item in payments)},
+        "amounts":{"total_outstanding":outstanding,"total_collected":collected,"total_settled":settled,"payment_settlement_difference":collected-settled},
+        "reconciliation":{"match_rate":round((tiers["1"]+tiers["2"]+tiers["3"])/total*100,2) if total else 0,"total_matched_records":tiers["1"]+tiers["2"]+tiers["3"],"auto_reconciled":tiers["1"]+tiers["2"]+tiers["3"],"ai_resolved":sum(1 for item in open_exceptions if item.get("ai_reasoning")),"unresolved_exceptions":len(open_exceptions),"avg_confidence":round(sum(ai_confidences)/len(ai_confidences)*100,2) if ai_confidences else 0},
+        "risk":{"duplicate_payments":0,"unmatched_payments":sum(item.get("razorpay_payment_id") not in matched_payment_ids for item in payments),"pending_payments":sum(item.get("status") in {"authorized","created"} for item in payments),"settlement_exceptions":sum(abs(item.get("settlement_delta") or 0)>100 for item in rows)},
+        "throughput":{"records_processed":len(invoices)+len(payments)+len(settlements),"last_reconciled_at":last_reconciled},
+        "activity":{"invoices":[period(invoices,"issued_at",1),period(invoices,"issued_at",7),period(invoices,"issued_at",30)],"payments":[period(payments,"captured_at",1),period(payments,"captured_at",7),period(payments,"captured_at",30)]},
+        "today":{"invoices":[item for item in invoices if isinstance(item.get("issued_at"),datetime) and item["issued_at"]>=today_start],"payments":[item for item in payments if isinstance(item.get("captured_at"),datetime) and item["captured_at"]>=today_start]},
+        "exceptions":open_exceptions,"recent":{"invoices":invoices[:8],"payments":payments[:8],"settlements":settlements[:8]},
+    }
 
 @router.get("/search/{user_id}")
 async def search(user_id:str,request:Request,q:str=Query(min_length=1),user:dict=Depends(get_current_user)):

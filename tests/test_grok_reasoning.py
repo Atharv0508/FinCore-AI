@@ -11,9 +11,9 @@ class GrokReasoningTests(unittest.TestCase):
         )
         self.assertEqual(reasoning.severity, "medium")
 
-    def test_rejects_incomplete_content(self) -> None:
+    def test_rejects_malformed_json(self) -> None:
         with self.assertRaises(RuntimeError):
-            parse_reasoning('{"likely_cause":"Missing required fields"}')
+            parse_reasoning('this is not JSON')
 
 
 if __name__ == "__main__":

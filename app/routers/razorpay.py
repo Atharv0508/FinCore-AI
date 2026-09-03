@@ -34,4 +34,10 @@ async def sync_razorpay(request: Request, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
     except RuntimeError as error:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+    except Exception as error:
+        # Preserve a useful development diagnosis without exposing secrets or credentials.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected Razorpay sync error: {type(error).__name__}: {error}",
+        ) from error
     return SyncSummary(**counts)

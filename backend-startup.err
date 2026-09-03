@@ -1,0 +1,128 @@
+INFO:     Started server process [14452]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\srv_resolver.py", line 108, in _resolve_uri
+    results = _resolve(
+        "_" + self.__srv + "._tcp." + self.__fqdn, "SRV", lifetime=self.__connect_timeout
+    )
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\srv_resolver.py", line 53, in _resolve
+    return resolver.resolve(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\dns\resolver.py", line 1572, in resolve
+    return get_default_resolver().resolve(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        qname,
+        ^^^^^^
+    ...<7 lines>...
+        search,
+        ^^^^^^^
+    )
+    ^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\dns\resolver.py", line 1328, in resolve
+    timeout = self._compute_timeout(start, lifetime, resolution.errors)
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\dns\resolver.py", line 1084, in _compute_timeout
+    raise LifetimeTimeout(timeout=duration, errors=errors)
+dns.resolver.LifetimeTimeout: The resolution lifetime expired after 21.154 seconds: Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\starlette\routing.py", line 648, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Program Files\Python313\Lib\contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Program Files\Python313\Lib\contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Program Files\Python313\Lib\contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Program Files\Python313\Lib\contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Program Files\Python313\Lib\contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\app\main.py", line 20, in lifespan
+    await mongo.ping()
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\app\services\mongo.py", line 14, in ping
+    await self.database.command("ping")
+  File "C:\Program Files\Python313\Lib\concurrent\futures\thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\database.py", line 953, in command
+    return self._client._retryable_read(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        inner, read_preference, session, command_name, None, False, is_run_command=True
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 2076, in _retryable_read
+    return self._retry_internal(
+           ~~~~~~~~~~~~~~~~~~~~^
+        func,
+        ^^^^^
+    ...<9 lines>...
+        is_aggregate_write=is_aggregate_write,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 2038, in _retry_internal
+    ).run()
+      ~~~^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 2811, in run
+    res = self._read() if self._is_read else self._write()
+          ~~~~~~~~~~^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 3027, in _read
+    self._server = self._get_server()
+                   ~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 2975, in _get_server
+    return self._client._select_server(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self._server_selector,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        operation_id=self._operation_id,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 1838, in _select_server
+    topology = self._get_topology()
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 1776, in _get_topology
+    self._resolve_srv()
+    ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 927, in _resolve_srv
+    res = uri_parser._parse_srv(
+        entity,
+    ...<6 lines>...
+        srv_max_hosts=srv_max_hosts,
+    )
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\uri_parser.py", line 168, in _parse_srv
+    nodes = dns_resolver.get_hosts()
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\srv_resolver.py", line 148, in get_hosts
+    _, nodes = self._get_srv_response_and_hosts(True)
+               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\srv_resolver.py", line 122, in _get_srv_response_and_hosts
+    results = self._resolve_uri(encapsulate_errors)
+  File "C:\Users\Atharv\OneDrive\Documents\ChatGPT\Razorpay Buildathon\.venv\Lib\site-packages\pymongo\synchronous\srv_resolver.py", line 116, in _resolve_uri
+    raise ConfigurationError(str(exc)) from exc
+pymongo.errors.ConfigurationError: The resolution lifetime expired after 21.154 seconds: Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.; Server Do53:192.168.198.127@53 answered The DNS operation timed out.
+
+ERROR:    Application startup failed. Exiting.
