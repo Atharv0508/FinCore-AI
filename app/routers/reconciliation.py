@@ -9,6 +9,15 @@ router=APIRouter(tags=["reconciliation"])
 def owner(user_id,user):
     if user_id!=user["google_sub"]: raise HTTPException(403,"You may access only your own records.")
 
+def serialize_doc(doc:dict) -> dict:
+    """MongoDB's _id is a binary ObjectId — FastAPI's JSON encoder can't serialize it directly, so stringify it."""
+    if doc and "_id" in doc:
+        doc = {**doc, "_id": str(doc["_id"])}
+    return doc
+
+def serialize_docs(docs:list[dict]) -> list[dict]:
+    return [serialize_doc(d) for d in docs]
+
 @router.post("/demo-data/{user_id}")
 async def create_demo_data(user_id:str,request:Request,user:dict=Depends(get_current_user)):
     """Create a small linked Razorpay-like dataset for local project demonstrations."""
@@ -54,10 +63,10 @@ async def stats(user_id:str,request:Request,user:dict=Depends(get_current_user))
     owner(user_id,user); db=request.app.state.mongo.database; now=datetime.now(timezone.utc); today_start=now.replace(hour=0,minute=0,second=0,microsecond=0)
 
     rows=await db.matches.find({"user_id":user_id}).to_list(None)
-    invoices=await db.invoices.find({"user_id":user_id}).sort("created_at",-1).to_list(None)
-    payments=await db.payments.find({"user_id":user_id}).sort("created_at",-1).to_list(None)
-    settlements=await db.settlements.find({"user_id":user_id}).sort("created_at",-1).to_list(None)
-    exceptions=await db.exceptions.find({"user_id":user_id,"status":"open"}).to_list(None)
+    invoices=serialize_docs(await db.invoices.find({"user_id":user_id}).sort("created_at",-1).to_list(None))
+    payments=serialize_docs(await db.payments.find({"user_id":user_id}).sort("created_at",-1).to_list(None))
+    settlements=serialize_docs(await db.settlements.find({"user_id":user_id}).sort("created_at",-1).to_list(None))
+    exceptions=serialize_docs(await db.exceptions.find({"user_id":user_id,"status":"open"}).to_list(None))
 
     total=len(rows)
     tiers={str(i):sum(r.get("match_tier")==i for r in rows) for i in range(1,5)}
@@ -167,7 +176,7 @@ async def search(
         if clauses:
             query["$and"]=clauses
         docs=await getattr(db,collection).find(query).sort(date_field[collection],-1).limit(50).to_list(50)
-        out += [{"type":collection[:-1],"record":x} for x in docs]
+        out += [{"type":collection[:-1],"record":serialize_doc(x)} for x in docs]
     return {"items":out}
 
 @router.get("/transactions/{user_id}")
@@ -175,7 +184,7 @@ async def transactions(user_id:str,request:Request,classification:str|None=None,
     owner(user_id,user); q={"user_id":user_id};
     if classification:q["classification"]=classification
     rows=await request.app.state.mongo.database.matches.find(q).skip(skip).limit(limit).to_list(limit)
-    return {"items":rows,"skip":skip,"limit":limit}
+    return {"items":serialize_docs(rows),"skip":skip,"limit":limit}
 
 @router.post("/chat/{user_id}")
 async def chat(user_id:str,body:dict,request:Request,user:dict=Depends(get_current_user)):

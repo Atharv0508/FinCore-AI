@@ -190,6 +190,7 @@ export default function DashboardPage({ user, stats, notice, onSync, onConnect, 
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
 
   const counts = stats?.counts || {}
   const amounts = stats?.amounts || {}
@@ -231,13 +232,17 @@ export default function DashboardPage({ user, stats, notice, onSync, onConnect, 
   async function runSearch(q, dateFrom, dateTo) {
     if (!q?.trim() && !dateFrom && !dateTo) {
       setResults([])
+      setSearchError('')
       return
     }
     setSearching(true)
+    setSearchError('')
     try {
       setResults(await onSearch({ q: q?.trim() || undefined, dateFrom, dateTo }))
     } catch (error) {
       setResults([])
+      setSearchError(error.message || 'Search request failed.')
+      console.error('Search failed:', error)
     } finally {
       setSearching(false)
     }
@@ -620,7 +625,10 @@ export default function DashboardPage({ user, stats, notice, onSync, onConnect, 
 
           <div className="mt-5 space-y-2">
             {searching && <p className="text-sm text-slate-500">Searching…</p>}
-            {!searching && (query || preset !== 'All time' || customFrom || customTo) && results.length === 0 && (
+            {!searching && searchError && (
+              <p className="text-sm text-rose-400">Search failed: {searchError}</p>
+            )}
+            {!searching && !searchError && (query || preset !== 'All time' || customFrom || customTo) && results.length === 0 && (
               <p className="text-sm text-slate-500">No transactions match this search.</p>
             )}
             {results.map((item) => (
