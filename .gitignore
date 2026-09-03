@@ -1,6 +1,25 @@
 .env
+.env.*
+!.env.example
 .venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# JavaScript dependencies and build output
+node_modules/
+dist/
+
+# Local logs and generated reports
+*.log
+*.err
+coverage/
+.coverage
+
+# Local tooling and operating-system files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
 

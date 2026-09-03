@@ -7,7 +7,11 @@ class MongoService:
     """Owns the Mongo client and creates the indexes FinCore relies on."""
 
     def __init__(self, settings: Settings) -> None:
-        self._client = AsyncIOMotorClient(settings.mongodb_uri, serverSelectionTimeoutMS=5_000)
+        self._client = AsyncIOMotorClient(
+            settings.mongodb_uri,
+            serverSelectionTimeoutMS=5_000,
+            tz_aware=True,
+        )
         self.database: AsyncIOMotorDatabase = self._client[settings.mongodb_database]
 
     async def ping(self) -> None:

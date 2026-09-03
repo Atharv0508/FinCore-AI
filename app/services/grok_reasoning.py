@@ -44,6 +44,21 @@ def _json_default(value: Any) -> str:
     return value.isoformat() if isinstance(value, datetime) else str(value)
 
 
+MONEY_FIELDS = {"amount", "amount_paid", "amount_due", "fees", "tax", "settlement_delta"}
+
+
+def _chat_evidence(value: Any) -> Any:
+    """Present Razorpay paise values as INR rupees to the chat model."""
+    if isinstance(value, dict):
+        return {
+            str(key): item / 100 if key in MONEY_FIELDS and isinstance(item, (int, float)) else _chat_evidence(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_chat_evidence(item) for item in value]
+    return value
+
+
 def parse_reasoning(content: str) -> AIExceptionReasoning:
     """Normalize Groq JSON mode output into FinCore's persisted exception schema."""
     try:
@@ -76,11 +91,26 @@ class GrokReasoningService:
         self.database = database
         self.settings = settings
 
-    async def answer_exception_question(self, question: str, exceptions: list[dict[str, Any]]) -> dict[str, Any]:
+    async def answer_exception_question(self, question: str, evidence: dict[str, Any]) -> dict[str, Any]:
         if not self.settings.groq_api_key:
             raise RuntimeError("GROQ_API_KEY is not configured.")
         schema={"name":"exception_answer","strict":True,"schema":{"type":"object","properties":{"answer":{"type":"string"},"cited_exception_ids":{"type":"array","items":{"type":"string"}}},"required":["answer","cited_exception_ids"],"additionalProperties":False}}
-        payload={"model":self.settings.groq_model,"temperature":0,"messages":[{"role":"system","content":"Answer only from supplied exception records. Return valid JSON only in exactly this shape: {\"answer\":\"short evidence-based answer\",\"cited_exception_ids\":[]}. Do not use Markdown."},{"role":"user","content":json.dumps({"question":question,"exceptions":exceptions},default=_json_default)}],"response_format":{"type":"json_object"}}
+        system_prompt=(
+            "You are FinCore AI's finance controller, not a generic chatbot. Answer only using the "
+            "structured evidence provided under 'evidence' - monetary values are in INR rupees, never invent invoice numbers, amounts, dates, "
+            "or fees that are not present there. If the evidence is empty or does not contain what's needed, "
+            "say so plainly and suggest what the user should check instead.\n\n"
+            "Format every answer as plain text with line breaks (no Markdown symbols like # or **), like this:\n"
+            "1. One-line verdict.\n"
+            "2. A short labeled breakdown of the relevant figures, one per line (e.g. Invoice / Payment / "
+            "Settlement / Difference, or Expected vs Actual) - only if such figures are present in the evidence.\n"
+            "3. Which match signals agreed or disagreed, if present (customer email, payment date, invoice ID, amount).\n"
+            "4. Confidence, if present in the evidence.\n"
+            "5. A one-line recommendation or next action.\n"
+            "Skip any of these sections that don't apply to the question - do not pad the answer with empty sections.\n"
+            "Return valid JSON only in exactly this shape: {\"answer\":\"...\",\"cited_exception_ids\":[]}."
+        )
+        payload={"model":self.settings.groq_model,"temperature":0,"messages":[{"role":"system","content":system_prompt},{"role":"user","content":json.dumps({"question":question,"evidence":{"currency":"INR","amount_unit":"rupees",**_chat_evidence(evidence)}},default=_json_default)}],"response_format":{"type":"json_object"}}
         try:
             async with httpx.AsyncClient(timeout=45) as client:
                 response=await client.post(GROQ_CHAT_URL,headers={"Authorization":f"Bearer {self.settings.groq_api_key}","Content-Type":"application/json"},json=payload)

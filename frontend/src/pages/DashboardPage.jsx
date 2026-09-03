@@ -14,7 +14,103 @@ const GRID_STROKE = 'rgba(255,255,255,0.06)'
 const AXIS_TICK = { fontSize: 12, fill: '#94a3b8' }
 
 function fmtDate(value) {
-  return value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
+  return value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', year: 'numeric' }) : '—'
+}
+
+function statusTone(status) {
+  const s = (status || '').toLowerCase()
+  if (['paid', 'captured', 'processed', 'reconciled'].some((k) => s.includes(k))) return 'text-emerald-300 bg-emerald-500/10 border-emerald-400/20'
+  if (['partial', 'authorized', 'pending', 'issued'].some((k) => s.includes(k))) return 'text-amber-300 bg-amber-500/10 border-amber-400/20'
+  if (['failed', 'unpaid', 'cancelled', 'expired', 'exception'].some((k) => s.includes(k))) return 'text-rose-300 bg-rose-500/10 border-rose-400/20'
+  return 'text-slate-300 bg-white/5 border-white/10'
+}
+
+// Builds a human-readable field list for a record, tailored to whichever
+// record type it is (invoice / payment / settlement) rather than dumping raw JSON.
+function detailRows(record) {
+  if (!record) return []
+  if (record.razorpay_invoice_id) {
+    return [
+      ['Invoice ID', record.razorpay_invoice_id],
+      ['Invoice number', record.invoice_number],
+      ['Customer', record.customer_name],
+      ['Email', record.customer_email],
+      ['Amount', rupees(record.amount)],
+      ['Amount paid', rupees(record.amount_paid)],
+      ['Outstanding', rupees((record.amount || 0) - (record.amount_paid || 0))],
+      ['Issued', fmtDate(record.issued_at)],
+      ['Due', fmtDate(record.due_at)],
+      ['Paid at', fmtDate(record.paid_at)],
+      ['Status', record.status],
+    ]
+  }
+  if (record.razorpay_payment_id) {
+    return [
+      ['Payment ID', record.razorpay_payment_id],
+      ['Linked invoice', record.invoice_id],
+      ['Order ID', record.order_id],
+      ['Settlement ID', record.settlement_id],
+      ['Email', record.email],
+      ['Amount', rupees(record.amount)],
+      ['Method', record.method?.toUpperCase()],
+      ['Fee', record.fee != null ? rupees(record.fee) : '—'],
+      ['Tax', record.tax != null ? rupees(record.tax) : '—'],
+      ['Captured at', fmtDate(record.captured_at)],
+      ['Status', record.status],
+    ]
+  }
+  if (record.razorpay_settlement_id) {
+    return [
+      ['Settlement ID', record.razorpay_settlement_id],
+      ['UTR', record.utr],
+      ['Amount', rupees(record.amount)],
+      ['Fees', rupees(record.fees)],
+      ['Tax', rupees(record.tax)],
+      ['Net settled', rupees((record.amount || 0) - (record.fees || 0) - (record.tax || 0))],
+      ['Settled at', fmtDate(record.settled_at)],
+      ['Status', record.status],
+    ]
+  }
+  return Object.entries(record).map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])
+}
+
+function recordLabel(record) {
+  return record.razorpay_invoice_id || record.razorpay_payment_id || record.razorpay_settlement_id || record._id
+}
+
+function TransactionDetails({ record }) {
+  const rows = detailRows(record).filter(([, v]) => v !== undefined && v !== null && v !== '')
+  const [showRaw, setShowRaw] = useState(false)
+  return (
+    <div className="mt-4">
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] divide-y divide-white/5 overflow-hidden">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
+            <span className="text-xs font-medium text-slate-500 shrink-0 pt-0.5">{label}</span>
+            {label === 'Status' ? (
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${statusTone(value)} capitalize`}>
+                {String(value).replaceAll('_', ' ')}
+              </span>
+            ) : (
+              <span className="text-sm text-slate-200 text-right break-words">{String(value)}</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={() => setShowRaw(!showRaw)}
+        className="mt-3 text-xs font-medium text-slate-500 hover:text-slate-300"
+      >
+        {showRaw ? '▾ Hide raw data' : '▸ View raw data'}
+      </button>
+      {showRaw && (
+        <pre className="mt-2 max-h-[40vh] overflow-auto rounded-lg bg-black/40 border border-white/10 p-3 text-[11px] leading-relaxed text-slate-400">
+          {JSON.stringify(record, null, 2)}
+        </pre>
+      )}
+    </div>
+  )
 }
 
 function ProgressBar({ label, valuePct, tone = 'indigo', hint }) {
@@ -48,6 +144,39 @@ function Section({ title, subtitle, children, right }) {
   )
 }
 
+const DATE_PRESETS = ['All time', 'Today', 'Yesterday', 'Last 7 days', 'This month', 'Last month']
+
+// Turns a preset label into { dateFrom, dateTo } ISO strings (inclusive end-of-day).
+function presetRange(preset) {
+  const now = new Date()
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const iso = (d) => d.toISOString().slice(0, 10)
+  const endOfDay = (d) => iso(d) + 'T23:59:59'
+
+  if (preset === 'Today') {
+    const d = startOfDay(now)
+    return { dateFrom: iso(d), dateTo: endOfDay(d) }
+  }
+  if (preset === 'Yesterday') {
+    const d = startOfDay(new Date(now - 86400000))
+    return { dateFrom: iso(d), dateTo: endOfDay(d) }
+  }
+  if (preset === 'Last 7 days') {
+    const from = startOfDay(new Date(now - 6 * 86400000))
+    return { dateFrom: iso(from), dateTo: endOfDay(now) }
+  }
+  if (preset === 'This month') {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1)
+    return { dateFrom: iso(from), dateTo: endOfDay(now) }
+  }
+  if (preset === 'Last month') {
+    const from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const to = new Date(now.getFullYear(), now.getMonth(), 0)
+    return { dateFrom: iso(from), dateTo: endOfDay(to) }
+  }
+  return { dateFrom: null, dateTo: null }
+}
+
 export default function DashboardPage({ user, stats, notice, onSync, onConnect, onLogout, onSearch, onChat }) {
   const [tab, setTab] = useState('Overview')
   const [menu, setMenu] = useState(false)
@@ -57,6 +186,10 @@ export default function DashboardPage({ user, stats, notice, onSync, onConnect, 
   const [answer, setAnswer] = useState('')
   const [pendingQuestion, setPendingQuestion] = useState(null)
   const [asking, setAsking] = useState(false)
+  const [preset, setPreset] = useState('All time')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [searching, setSearching] = useState(false)
 
   const counts = stats?.counts || {}
   const amounts = stats?.amounts || {}
@@ -93,10 +226,48 @@ export default function DashboardPage({ user, stats, notice, onSync, onConnect, 
 
   const todayLabel = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })
 
-  async function search(e) {
+  // Combines the text query with whichever date filter is active (preset or custom),
+  // and re-runs whenever either changes.
+  async function runSearch(q, dateFrom, dateTo) {
+    if (!q?.trim() && !dateFrom && !dateTo) {
+      setResults([])
+      return
+    }
+    setSearching(true)
+    try {
+      setResults(await onSearch({ q: q?.trim() || undefined, dateFrom, dateTo }))
+    } catch (error) {
+      setResults([])
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function activeRange() {
+    if (preset === 'All time') return { dateFrom: customFrom || null, dateTo: customTo ? customTo + 'T23:59:59' : null }
+    return presetRange(preset)
+  }
+
+  function onQueryChange(e) {
     const value = e.target.value
     setQuery(value)
-    setResults(value.length > 1 ? await onSearch(value) : [])
+    const { dateFrom, dateTo } = activeRange()
+    runSearch(value, dateFrom, dateTo)
+  }
+
+  function selectPreset(name) {
+    setPreset(name)
+    setCustomFrom('')
+    setCustomTo('')
+    const { dateFrom, dateTo } = name === 'All time' ? { dateFrom: null, dateTo: null } : presetRange(name)
+    runSearch(query, dateFrom, dateTo)
+  }
+
+  function applyCustomRange(from, to) {
+    setCustomFrom(from)
+    setCustomTo(to)
+    setPreset('All time')
+    runSearch(query, from || null, to ? to + 'T23:59:59' : null)
   }
 
   async function submitChat(e, forcedQuestion) {
@@ -395,22 +566,81 @@ export default function DashboardPage({ user, stats, notice, onSync, onConnect, 
       {tab === 'Search' && (
         <div className="max-w-3xl mx-auto px-6 pt-6 relative z-10">
           <h1 className="text-2xl font-bold text-white">Search transactions</h1>
+          <p className="text-sm text-slate-500 mt-1">By name, ID or email, by date, or both — across invoices, payments and settlements.</p>
+
           <input
             value={query}
             placeholder="Name, invoice ID, payment ID…"
-            onChange={search}
+            onChange={onQueryChange}
             className="w-full mt-4 rounded-lg bg-white/[0.03] border border-white/10 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
-          <div className="mt-4 space-y-2">
+
+          {/* Date presets */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {DATE_PRESETS.map((name) => (
+              <button
+                key={name}
+                onClick={() => selectPreset(name)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                  preset === name
+                    ? 'bg-indigo-500/15 border-indigo-400/40 text-indigo-300'
+                    : 'border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20'
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom range */}
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <label className="text-xs text-slate-500">Custom range:</label>
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => applyCustomRange(e.target.value, customTo)}
+              className="rounded-lg bg-white/[0.03] border border-white/10 px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <span className="text-xs text-slate-600">to</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => applyCustomRange(customFrom, e.target.value)}
+              className="rounded-lg bg-white/[0.03] border border-white/10 px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {(customFrom || customTo) && (
+              <button
+                onClick={() => applyCustomRange('', '')}
+                className="text-xs text-slate-500 hover:text-slate-300"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="mt-5 space-y-2">
+            {searching && <p className="text-sm text-slate-500">Searching…</p>}
+            {!searching && (query || preset !== 'All time' || customFrom || customTo) && results.length === 0 && (
+              <p className="text-sm text-slate-500">No transactions match this search.</p>
+            )}
             {results.map((item) => (
               <button
                 key={item.record._id}
                 onClick={() => setSelected(item.record)}
                 className="block w-full text-left rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3 hover:border-indigo-400/30 hover:bg-indigo-500/5"
               >
-                <span className="text-xs font-semibold uppercase tracking-wide text-indigo-300">{item.type}</span>
-                <span className="block text-sm font-medium text-slate-200 mt-0.5">
-                  {item.record.razorpay_invoice_id || item.record.razorpay_payment_id || item.record.razorpay_settlement_id}
+                <div className="flex items-center justify-between gap-3">
+                  <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                    { invoice: 'bg-indigo-500/15 text-indigo-300', payment: 'bg-cyan-500/15 text-cyan-300', settlement: 'bg-amber-500/15 text-amber-300' }[item.type]
+                  }`}>
+                    {item.type}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {fmtDate(item.record.issued_at || item.record.captured_at || item.record.settled_at)}
+                  </span>
+                </div>
+                <span className="block text-sm font-medium text-slate-200 mt-1.5">
+                  {item.record.customer_name || item.record.email || item.record.razorpay_invoice_id || item.record.razorpay_payment_id || item.record.razorpay_settlement_id}
                 </span>
                 <span className="block text-xs text-slate-500 mt-0.5">{rupees(item.record.amount)}</span>
               </button>
@@ -446,15 +676,12 @@ export default function DashboardPage({ user, stats, notice, onSync, onConnect, 
         <aside className="fixed right-0 top-0 h-screen w-full max-w-[460px] bg-[#0d0d12] border-l border-white/10 shadow-2xl z-40 p-6 overflow-y-auto">
           <button onClick={() => setSelected()} className="text-slate-500 hover:text-slate-200 text-lg">×</button>
           <h2 className="text-lg font-bold text-white mt-3">Transaction details</h2>
-          <pre className="mt-4 max-h-[60vh] overflow-auto rounded-lg bg-black/40 border border-white/10 p-3 text-[11px] leading-relaxed text-slate-400">
-            {JSON.stringify(selected, null, 2)}
-          </pre>
+          <p className="text-xs text-slate-500 mt-0.5">{recordLabel(selected)}</p>
+
+          <TransactionDetails record={selected} />
+
           <button
-            onClick={() =>
-              askAiAbout(
-                `Explain this transaction in detail: ${selected.razorpay_invoice_id || selected.razorpay_payment_id || selected.razorpay_settlement_id || selected._id}.`
-              )
-            }
+            onClick={() => askAiAbout(`Explain this transaction in detail: ${recordLabel(selected)}.`)}
             className="mt-4 w-full rounded-lg bg-gradient-to-r from-indigo-500 to-fuchsia-500 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
           >
             Ask AI →
