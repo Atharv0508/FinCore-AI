@@ -1,4 +1,4 @@
-export const API=import.meta.env.VITE_API_URL||'/api'
+export const API=(import.meta.env.VITE_API_URL||'/api').replace(/\/+$/,'')
 function describeDetail(detail){
   if(typeof detail==='string') return detail
   if(Array.isArray(detail)) return detail.map(e=>typeof e==='string'?e:(e?.msg||JSON.stringify(e))).join('; ')
