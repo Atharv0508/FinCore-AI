@@ -62,13 +62,15 @@ async def sign_in_with_google(payload: GoogleTokenRequest, request: Request, res
     )
     user = await users.find_one({"_id": user_id})
     token = create_session_token(google_sub, settings)
+    # Cross-site cookies (frontend and backend on different Azure domains) require
+    # SameSite=None + Secure. Locally over http, Lax + insecure still works.
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
         max_age=settings.jwt_expire_minutes * 60,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite="lax",
+        samesite="none" if settings.cookie_secure else "lax",
         path="/",
     )
     return serialize_user(user)
@@ -81,4 +83,10 @@ async def current_session_user(user: dict = Depends(get_current_user)) -> Sessio
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(response: Response) -> None:
-    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    settings = get_settings()
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        path="/",
+        secure=settings.cookie_secure,
+        samesite="none" if settings.cookie_secure else "lax",
+    )

@@ -662,7 +662,7 @@ export default function DashboardPage({ user, stats, notice, onSync, onConnect, 
         <div className="max-w-2xl mx-auto px-6 pt-6 relative z-10">
           <h1 className="text-2xl font-bold text-white">Exception analyst</h1>
           <p className="text-sm text-slate-500 mt-1">Ask anything about a transaction or exception — answers are grounded only in your reconciled evidence.</p>
-          <div className="mt-5 min-h-[120px] rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-300 leading-relaxed">
+          <div className="mt-5 min-h-[120px] rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-300 leading-relaxed whitespace-pre-line">
             {asking ? <span className="text-slate-500">Thinking…</span> : answer || <span className="text-slate-500">Ask a question to get started.</span>}
           </div>
           <form onSubmit={submitChat} className="mt-4 flex gap-2">
